@@ -1,6 +1,6 @@
 {
   "name": "Projeto - Lastro Consignado",
-  "initialRoute": "Código",
+  "initialRoute": "pipeline-facta",
   "colors": {
     "light": {
       "brand": "#3B82F6"
