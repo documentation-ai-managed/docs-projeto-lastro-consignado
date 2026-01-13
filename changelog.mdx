@@ -1,0 +1,138 @@
+---
+title: Changelog
+description: Track the latest updates, improvements, and fixes in Projeto - Lastro Consignado.
+---
+
+## Recent Updates
+
+Stay informed about the latest releases. Review changes, new features, and important migration notes before upgrading.
+
+<Update label="2024-10-15" description="v1.2.0" tags={["feature", "improvement"]}>
+
+## New Features
+
+- Added support for batch processing of consignado contracts via the new `/api/consignado/batch` endpoint.
+- Introduced real-time status tracking for lastro operations with WebSocket integration.
+
+## Improvements
+
+- Enhanced performance of payroll deduction calculations by `>30%` through optimized algorithms.
+- Improved error handling in authentication flows for better user feedback.
+
+## Bug Fixes
+
+- Fixed issue where duplicate entries appeared in contract lists under high load.
+- Resolved token expiration handling during long-running consignado simulations.
+
+</Update>
+
+<Update label="2024-09-20" description="v1.1.0" tags={["feature", "bugfix"]}>
+
+## New Features
+
+- New dashboard widget for visualizing consignado lastro trends over time.
+- API support for querying historical deduction data with date ranges.
+
+## Bug Fixes
+
+- Corrected validation errors when submitting consignado forms with special characters.
+- Fixed pagination bugs in the contract management interface.
+
+</Update>
+
+<Update label="2024-08-10" description="v1.0.0" tags={["breaking", "feature"]}>
+
+## Breaking Changes
+
+- Removed deprecated `/api/legacy/lastro` endpoint. Migrate to `/api/consignado/lastro/v2`.
+- Updated authentication to require JWT tokens only; basic auth disabled.
+
+## New Features
+
+- Core consignado lastro simulation engine with full payroll integration.
+- User management dashboard for admins.
+
+## Initial Setup
+
+- First release with complete API documentation and SDK examples.
+
+</Update>
+
+## Upgrade Instructions
+
+Follow these steps to upgrade your Projeto - Lastro Consignado instance safely.
+
+<Callout kind="alert">
+Before upgrading, back up your database and review breaking changes in the release notes above.
+</Callout>
+
+<Steps>
+  <Step title="Backup Data" icon="database">
+    Export your consignado data:
+    
+````bash
+pg_dump -U youruser lastro_db > lastro_backup_$(date +%Y%m%d).sql
+````
+  </Step>
+  
+  <Step title="Update Package" icon="package">
+    Install the latest version using your package manager.
+    
+    <CodeGroup tabs="npm,yarn">
+````bash
+npm install @projeto/lastro-consignado@latest
+````
+````bash
+yarn add @projeto/lastro-consignado@latest
+````
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Run Migrations" icon="git-merge">
+    Apply database migrations:
+    
+````bash
+npx lastro-migrate up
+````
+  </Step>
+  
+  <Step title="Restart Services" icon="refresh-cw">
+    Restart your application server and verify endpoints.
+    
+    <Callout kind="tip">
+    Test the `/api/health` endpoint first: `curl https://api.example.com/api/health`
+    </Callout>
+  </Step>
+</Steps>
+
+## Breaking Changes Summary
+
+| Version | Change | Impact | Migration |
+|---------|--------|--------|-----------|
+| v1.2.0 | None | Low | N/A |
+| v1.1.0 | None | Low | N/A |
+| v1.0.0 | Deprecated endpoints | High | Update to v2 paths |
+
+<Columns cols={2}>
+  <Card title="Migration Guide" icon="book-open" href="/introduction">
+    Detailed migration steps for all versions.
+  </Card>
+  
+  <Card title="API Reference" icon="api" href="/authentication">
+    Updated endpoints post-upgrade.
+  </Card>
+</Columns>
+
+<Expandable title="Advanced Upgrade for Docker Users" default-open="false">
+  If using Docker, update your `docker-compose.yml`:
+
+````yaml
+services:
+  lastro-app:
+    image: projeto/lastro-consignado:latest
+    environment:
+      - API_KEY=${YOUR_API_KEY}
+````
+  
+  Then run `docker-compose up -d`.
+</Expandable>

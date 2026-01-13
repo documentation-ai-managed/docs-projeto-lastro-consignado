@@ -1,0 +1,185 @@
+---
+title: Configuring Your Documentation Space
+description: Customize settings and preferences to tailor the platform to your project's needs.
+---
+
+## Overview
+
+Configure your documentation space in Projeto - Lastro Consignado to match your team's workflow. Adjust permissions, themes, notifications, backups, and integrations through the settings panel. These options ensure secure access, branded appearance, and seamless connectivity.
+
+<Callout kind="tip">
+  Access all settings from the dashboard at `https://dashboard.example.com/settings`.
+</Callout>
+
+## Space Permissions and Access Levels
+
+Manage who can view, edit, or administer your documentation space. Define roles to control contributions and visibility.
+
+Use these access levels:
+
+| Role          | View | Edit | Admin | Description                          |
+|---------------|------|------|-------|--------------------------------------|
+| Viewer        | ✅   | ❌   | ❌    | Read-only access to all pages.       |
+| Editor        | ✅   | ✅   | ❌    | Edit content but cannot manage users.|
+| Administrator | ✅   | ✅   | ✅    | Full control including user management.|
+
+<Expandable title="Advanced Permission Rules" default-open="false">
+
+  Set granular permissions via API:
+
+  <ParamField path="permissions.role" param-type="string" required="true">
+    Role assignment: `viewer`, `editor`, or `admin`.
+  </ParamField>
+
+  <ParamField header="X-API-Key" param-type="string" required="true">
+    Your API key from `https://dashboard.example.com/api-keys`.
+  </ParamField>
+
+</Expandable>
+
+## Theme and Branding Customization
+
+Tailor the visual identity with custom colors, logos, and fonts. Apply your brand color `#3B82F6` for buttons and headers.
+
+<Steps>
+  <Step title="Access Theme Settings" icon="settings">
+    Navigate to Settings > Theme.
+  </Step>
+  <Step title="Update Colors" icon="palette">
+    Enter your primary color:
+````json
+{
+  "primary": "#3B82F6",
+  "secondary": "#1E40AF"
+}
+````
+  </Step>
+  <Step title="Upload Logo" icon="upload">
+    Drag and drop your logo file (PNG, max 2MB).
+  </Step>
+  <Step title="Save Changes" icon="save">
+    Preview and apply theme.
+  </Step>
+</Steps>
+
+<CodeGroup tabs="JSON,YAML">
+```json
+{
+  "theme": {
+    "brandColor": "#3B82F6",
+    "fontFamily": "Inter, sans-serif"
+  }
+}
+```
+```yaml
+theme:
+  brandColor: "#3B82F6"
+  fontFamily: "Inter, sans-serif"
+```
+</CodeGroup>
+
+## Notification Settings
+
+Configure alerts for updates, mentions, and activity. Choose channels like email or webhooks.
+
+<Tabs>
+  <Tab title="Email" icon="mail">
+    Enable daily digests:
+    
+````json
+{
+  "notifications": {
+    "email": {
+      "dailyDigest": true,
+      "mentionsOnly": false
+    }
+  }
+}
+````
+  </Tab>
+  <Tab title="Webhook" icon="zap">
+    Set up webhook for real-time updates:
+    
+    <ParamField header="Webhook-URL" param-type="string" required="true">
+      Target URL like `https://your-webhook-url.com/webhook`.
+    </ParamField>
+    
+````javascript
+fetch('https://your-webhook-url.com/webhook', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ event: 'page_updated' })
+});
+````
+  </Tab>
+</Tabs>
+
+## Backup and Import/Export Configurations
+
+Schedule automated backups and export content for migration.
+
+<Columns cols={2}>
+  <Card title="Automated Backups" icon="database" href="#">
+    Enable daily backups to secure your data.
+  </Card>
+  <Card title="Export to ZIP" icon="download" href="#">
+    Download all pages as Markdown ZIP.
+  </Card>
+</Columns>
+
+<Callout kind="alert">
+  Backups exclude deleted content. Run manual exports before major changes.
+</Callout>
+
+To configure via API:
+
+<Request tabs="cURL,JavaScript" show-lines="true">
+```bash
+curl -X POST https://api.example.com/v1/backups \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schedule": "daily",
+    "retention": 30
+  }'
+```
+```javascript
+const response = await fetch('https://api.example.com/v1/backups', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    schedule: 'daily',
+    retention: 30
+  })
+});
+```
+</Request>
+
+<Response tabs="200">
+```json
+{
+  "success": true,
+  "backupId": "bkp_abc123"
+}
+```
+</Response>
+
+## Integration with External Tools
+
+Connect to tools like GitHub, Slack, or Jira for enhanced workflow.
+
+<ExpandableGroup>
+  <Expandable title="GitHub Integration" default-open="true">
+    Sync documentation with repositories.
+    
+    <ParamField query="repo" param-type="string" required="true">
+      Repository name, e.g., `your-org/projeto-lastro`.
+    </ParamField>
+  </Expandable>
+  <Expandable title="Slack Notifications">
+    Post updates to channels.
+  </Expandable>
+</ExpandableGroup>

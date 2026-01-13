@@ -1,0 +1,20 @@
+---
+title: Como faço a autenticação na API?
+description: Veja como autenticar requests na API do Lastro Consignado.
+---
+
+## Pergunta
+
+Como autentico aplicações na API do Projeto Lastro Consignado?
+
+## Resposta
+
+Adicione seu token na header Authorization como Bearer Token.
+
+## Exemplo
+
+```bash
+curl -H "Authorization: Bearer SEU_TOKEN" https://api.lastroconsignado.com/v1/emprestimos
+```
+
+Consulte seu dashboard para gerar tokens.
