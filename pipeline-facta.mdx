@@ -1,0 +1,499 @@
+---
+title: Pipeline FACTA — Validação Documental com Antifraude Obrigatório
+description: >-
+  Guia técnico do main.py   — fluxo ponta a ponta de captura, OCR, validação
+  multi-fator, biometria e geração de relatório.
+---
+## Visão geral do pipeline FACTA
+
+Este guia documenta o script `main.py` que orquestra um pipeline completo de validação documental de contratos com multiprocessamento.
+
+O pipeline executa, em alto nível:
+
+- Captura de metadados dos contratos na pasta de entrada.
+
+- OCR paralelo dos documentos.
+
+- Validação de consistência multi-fator (CPF, nome, tipos de documento, probabilidades de OCR).
+
+- Processo de biometria em servidor dedicado.
+
+- Consolidação de status por contrato e geração de relatório final (CSV e XLSX).
+
+<Callout kind="info" collapsed="false">
+  Este documento é voltado para desenvolvedores e analistas responsáveis por rodar e manter o pipeline. Ele não substitui a leitura do código, mas resume o comportamento de alto nível e os pontos de configuração críticos.
+</Callout>
+
+## Fluxo ponta a ponta do pipeline
+
+### Resumo das etapas
+
+<Steps>
+  <Step title="Captura de metadados FACTA" icon="folder" title-type="p">
+    Os metadados de contratos e documentos são carregados a partir de uma `pasta_entrada`, via função `capturar_metadados_facta(pasta_entrada, num_processos)`.\
+    O resultado é um `DataFrame` com:
+
+    - Contratos (chave de contrato, por exemplo, número de proposta).
+
+    - Documentos associados (CCB, RG, ANTIFRAUDE, entre outros).
+
+    - Informações mínimas para orientar o OCR.
+  </Step>
+
+  <Step title="OCR paralelo dos documentos" icon="terminal" title-type="p">
+    Processos `ocr_worker` são criados para processar documentos em paralelo:
+
+    - Cada worker carrega os modelos de OCR/ML a partir de `PASTA_MODELOS`.
+
+    - Cada documento é processado por `worker_processar_documento`, que aplica `NOTAS_DE_CORTE` (limiares de confiança) por tipo de documento/campo.
+
+    - O resultado é um `DataFrame` de OCR com textos extraídos, probabilidades e metadados de cada arquivo.
+  </Step>
+
+  <Step title="Consolidação e validação multi-fator" icon="database" title-type="p">
+    Os dados de metadados e OCR são consolidados em um único `DataFrame` (`df_final`).\
+    Em seguida, o pipeline chama `validar_consistencia_otimizada(df_final, col_chave, bio_q, bio_res_q)`, que:
+
+    - Normaliza `tipo_documento`.
+
+    - Separa e indexa documentos CCB e ANTIFRAUDE por chave de contrato.
+
+    - Executa a Fase 1/3 (texto e regras) e agenda biometria quando necessário.
+
+    - Executa a Fase 2/3 (biometria) em servidor dedicado.
+
+    - Consolida a Fase 3/3 (status final por contrato).
+  </Step>
+
+  <Step title="Biometria em servidor dedicado" icon="shield" title-type="p">
+    Um processo `biometria_server` consome uma fila de biometria:
+
+    - Recebe pares de documentos (RG e ANTIFRAUDE) a validar.
+
+    - Chama `verificar_identidade_documentos(rg, antifraude)` para comparar a face/documento.
+
+    - Escreve o resultado em uma fila de respostas, consumida por `validar_consistencia_otimizada` na Fase 2/3.
+  </Step>
+
+  <Step title="Geração de relatórios" icon="bar-chart" title-type="p">
+    Ao final, o script escreve:
+
+    - Um CSV (`sep=";"`) com colunas padronizadas e caracteres saneados.
+
+    - Um XLSX com o mesmo conteúdo, facilitando análise por times de negócio.
+  </Step>
+</Steps>
+
+## Execução via linha de comando (CLI)
+
+O ponto de entrada do script é a função `main()`, que recebe:
+
+- `pasta_entrada` (posicional): caminho para a pasta raiz com contratos/documentos.
+
+- `arquivo_saida` (posicional): caminho base para o relatório (sem extensão ou com extensão tratada no código).
+
+- `--processos` (opcional): número de processos paralelos de OCR (padrão `5`).
+
+- `--modo` (opcional): padrão `"novo"`; internamente os workers usam `"novo"` fixo.
+
+### Exemplo de comando
+
+```bash
+python main.py /dados/facta/entrada /dados/facta/saida/relatorio --processos 5 --modo novo
+```
+
+Parâmetros típicos:
+
+- `pasta_entrada`: pasta com subpastas/arquivos dos contratos FACTA.
+
+- `arquivo_saida`: prefixo para `relatorio.csv` e `relatorio.xlsx` (depende da implementação exata no código).
+
+- `--processos`: ajustar conforme CPU disponível.
+
+<Callout kind="tip" collapsed="false">
+  Se estiver rodando em servidor com muitos núcleos, você pode aumentar `--processos`.\
+  Monitore uso de CPU, memória e I/O de disco para evitar saturação.
+</Callout>
+
+## Principais configurações e constantes
+
+O script define constantes que controlam o comportamento do pipeline. Abaixo estão os grupos mais relevantes.
+
+### PASTA\_MODELOS
+
+Representa o diretório onde ficam os modelos de OCR/ML usados pelos `ocr_worker`.
+
+Uso típico:
+
+- Carregamento de modelos de linguagem/visão.
+
+- Dicionários e pesos de classificação usados em `worker_processar_documento`.
+
+Impacto:
+
+- Se `PASTA_MODELOS` estiver incorreta ou incompleta, os workers não conseguirão executar o OCR adequadamente.
+
+- Antes de rodar em produção, valide se todos os arquivos esperados estão presentes nesta pasta.
+
+### NOTAS\_DE\_CORTE
+
+`NOTAS_DE_CORTE` agrupa limiares de confiança aplicados no OCR e na validação textual.
+
+<Callout kind="info" collapsed="false">
+  Os valores exatos de `NOTAS_DE_CORTE` e como cada chave é aplicada estão definidos diretamente no código.\
+  Aqui destacamos apenas os limiares explicitamente mencionados:
+
+  - Probabilidade mínima para CCB válido: `0.95`.
+
+  - Limiar de validação de CPF no RG (`CPF_RG`): `0.70`.
+
+  - Limiar de validação de nome (`NOME`): `85` (escala de similaridade textual usada no script).
+</Callout>
+
+### TIPOS\_DOCUMENTO\_ESPERADOS
+
+Conjunto/lista de tipos de documento que o pipeline reconhece, por exemplo:
+
+- `CCB` (contrato).
+
+- `RG` (documento de identidade).
+
+- `ANTIFRAUDE` (relatório/ficha antifraude).
+
+Impacto:
+
+- O mapeamento e normalização de `tipo_documento` dependem desta configuração.
+
+- Documentos fora desta lista podem ser ignorados ou tratados como tipos genéricos.
+
+### Limiar de validação textual e regras de negócio
+
+Além de `NOTAS_DE_CORTE`, há limiares implícitos e regras específicas:
+
+- **CCB**:
+
+  - Probabilidade mínima para o documento ser considerado legível/válido.
+
+  - Uso de CPF válido (checagem de dígitos) e presença de PDF na escolha entre CCBs duplicados.
+
+- **RG**:
+
+  - Validação por CPF: limiar de confiança `CPF_RG` (0.70) ao extrair CPF do RG via OCR.
+
+  - Validação por nome: limiar `NOME` (85) para similaridade entre nome no RG e nome esperado (metadado/CCB).
+
+- **ANTIFRAUDE**:
+
+  - Presença é obrigatória para aprovação. Ausência de ANTIFRAUDE leva a status final reprovado, mesmo que CCB e RG estejam consistentes.
+
+## Arquitetura de processos e filas
+
+O script utiliza multiprocessamento para acelerar OCR e isolar a biometria em um servidor/processo dedicado.
+
+### Workers de OCR (`ocr_worker`)
+
+Cada processo `ocr_worker` é responsável por:
+
+- Inicializar modelos de OCR com base em `PASTA_MODELOS`.
+
+- Consumir uma fila de tarefas (lista de documentos a processar).
+
+- Chamar `worker_processar_documento` para cada arquivo, que:
+
+  - Faz OCR.
+
+  - Classifica tipo de documento (quando aplicável).
+
+  - Aplica `NOTAS_DE_CORTE` pertinentes.
+
+  - Retorna texto extraído, probabilidades, campos estruturados.
+
+Os resultados são combinados em um `DataFrame` global de OCR, que depois é unido aos metadados.
+
+### Servidor de biometria (`biometria_server`)
+
+A biometria é desacoplada da validação textual:
+
+- Um processo (ou conjunto) `biometria_server` fica responsável por rodar em um ambiente apropriado (por exemplo, com GPU ou bibliotecas específicas).
+
+- A comunicação é feita por filas:
+
+  - `bio_q`: fila de solicitações, contendo pares (RG, ANTIFRAUDE) ou caminhos dos arquivos.
+
+  - `bio_res_q`: fila de respostas, com o resultado de `verificar_identidade_documentos(rg, antifraude)`.
+
+Função principal:
+
+- `verificar_identidade_documentos(rg, antifraude)` compara se o titular do RG é o mesmo do documento ANTIFRAUDE, retornando um indicador de sucesso/falha (e eventualmente scores, conforme o código).
+
+### Interação com `validar_consistencia_otimizada`
+
+`validar_consistencia_otimizada` recebe:
+
+- `df_final`: `DataFrame` consolidado (metadados + OCR).
+
+- `col_chave`: nome da coluna que identifica o contrato (chave primária).
+
+- `bio_q`: fila de envio de jobs para biometria.
+
+- `bio_res_q`: fila de leitura de resultados da biometria.
+
+O fluxo interno:
+
+1. Fase 1/3 e parte da Fase 2/3 preparam e enfileiram os casos que exigem biometria.
+
+2. O servidor de biometria processa a fila.
+
+3. A função lê resultados de `bio_res_q` e finaliza a Fase 2/3.
+
+4. Na Fase 3/3, consolida todos os status.
+
+## Detalhamento da função `validar_consistencia_otimizada`
+
+A função é o núcleo da validação de consistência dos documentos. Abaixo, o comportamento de acordo com as fases.
+
+### Normalização prévia
+
+Antes das fases:
+
+- Normaliza valores de `tipo_documento` (maiúsculas, remoção de variações de grafia, etc.).
+
+- Separa e indexa:
+
+  - Documentos `CCB` por contrato.
+
+  - Documentos `ANTIFRAUDE` por contrato.
+
+  - Documentos `RG` associados a cada contrato.
+
+Isso facilita o acesso eficiente aos documentos relevantes durante as fases.
+
+### Fase 1/3 — Regras textuais e preparação de biometria
+
+A Fase 1/3 percorre os contratos (linhas agregadas por `col_chave`) e executa:
+
+#### 1. Seleção e validação de CCB
+
+- Em caso de múltiplas CCBs para o mesmo contrato:
+
+  - A função pontua as opções com base em:
+
+    - CPF válido extraído (validação de dígitos).
+
+    - Presença de arquivo em PDF (prioriza PDF).
+
+  - Seleciona a melhor CCB candidata.
+
+- Validação da CCB:
+
+  - Exige probabilidade mínima (limiar do grupo `NOTAS_DE_CORTE`, explicitamente mencionado: `0.95`).
+
+  - Compara CPF e nome com o que se espera para o contrato (metadados).
+
+  - Define um campo `status_CCB_interno`, indicando se o CCB passou nas checagens.
+
+Se o CCB não atinge o limiar ou está inconsistente, o contrato tende a ser reprovado; essa decisão final é tomada na Fase 3/3.
+
+#### 2. Seleção e validação de RG
+
+Para cada contrato:
+
+1. **Seleção dos RGs**:
+
+   - Filtra apenas documentos de tipo `RG` associados ao contrato.
+
+   - Prioriza arquivos que contenham indicação de frente (por exemplo, no nome do arquivo).
+
+   - Entre RGs candidatos, escolhe o de maior probabilidade (score de OCR ou classificação).
+
+2. **Validação do RG (se CCB é válido)**:
+
+   - Se `status_CCB_interno` indica CCB válido:
+
+     - Tenta validar RG via CPF:
+
+       - Usa limiar `CPF_RG` (`0.70`), comparando o CPF extraído do RG com o CPF do contrato.
+
+     - Se o CPF não for conclusivo, tenta validar por nome:
+
+       - Usa limiar `NOME` (`85`) para similaridade de nome.
+
+   - Se houver CPFs divergentes no texto do RG:
+
+     - Extrai e registra CPFs que não batem com o CPF esperado, podendo impactar o status.
+
+3. **Falha de validação textual de RG**:
+
+   - Se as validações via texto (CPF e nome) falharem e existir ANTIFRAUDE:
+
+     - O contrato é marcado como `PENDENTE_BIOMETRIA`.
+
+     - Os caminhos de RG e ANTIFRAUDE são enfileirados em `bio_q` para biometria.
+
+   - Se não houver ANTIFRAUDE:
+
+     - O RG é reprovado diretamente e tende a levar o contrato à reprovação na Fase 3/3.
+
+#### 3. Verificação de ANTIFRAUDE
+
+- É verificado se existe pelo menos um documento `ANTIFRAUDE` por contrato.
+
+- Não há validação de conteúdo na Fase 1/3; a presença/ausência é usada para:
+
+  - Decidir se é possível enviar o caso para biometria (RG + ANTIFRAUDE).
+
+  - Sinalizar contratos que serão reprovados por ausência de ANTIFRAUDE.
+
+### Fase 2/3 — Biometria em servidor dedicado
+
+Na Fase 2/3:
+
+- Para cada contrato marcado como `PENDENTE_BIOMETRIA`:
+
+  - A função aguarda a resposta do `biometria_server` em `bio_res_q`.
+
+  - Para cada par (RG, ANTIFRAUDE), chama-se (no servidor) `verificar_identidade_documentos(rg, antifraude)`.
+
+Comportamento:
+
+- Se a biometria indicar correspondência suficiente:
+
+  - O RG pode ser considerado validado por biometria, mesmo sem validação textual completa.
+
+- Se a biometria falhar ou não retornar:
+
+  - O RG é mantido como reprovado/inconclusivo, afetando o status final.
+
+Os detalhes exatos dos limiares de biometria estão encapsulados em `verificar_identidade_documentos` e não são reespecificados neste guia.
+
+### Fase 3/3 — Consolidação final e decisão de status
+
+Ao fim da Fase 2/3, a função consolida:
+
+- Status da CCB (`status_CCB_interno` e outros campos).
+
+- Status do RG (texto e/ou biometria).
+
+- Presença de ANTIFRAUDE.
+
+A lógica principal de decisão:
+
+- **ANTIFRAUDE ausente**:
+
+  - O contrato é tratado como com documentos faltantes e o status final é reprovado.\
+    A ausência de ANTIFRAUDE por contrato impede aprovação.
+
+- **Cenários típicos de APROVADO**:
+
+  - CCB válida (CPF e nome coerentes, probabilidade acima do limiar).
+
+  - RG validado por:
+
+    - Texto (CPF ou nome com limiar satisfatório), ou
+
+    - Biometria bem-sucedida (quando houve dificuldade textual).
+
+  - ANTIFRAUDE presente.
+
+- **Cenários típicos de REPROVADO**:
+
+  - CCB inconsistente ou abaixo do limiar de probabilidade.
+
+  - RG inconsistente por texto e biometria:
+
+    - Falha no CPF (abaixo de `0.70` ou divergente).
+
+    - Falha no nome (abaixo de `85` ou muito divergente).
+
+    - Biometria negativa ou não conclusiva.
+
+  - ANTIFRAUDE ausente, mesmo com CCB e RG aparentemente válidos.
+
+- **Cenários de OK\_DOCS\_FALTANDO**:
+
+  - Há casos em que a lógica interna sinaliza status intermediário (como `OK_DOCS_FALTANDO`), por exemplo:
+
+    - Quando alguns documentos esperados não estão presentes, mas o que foi fornecido passa nas validações.
+
+  - Mesmo assim, a ausência de ANTIFRAUDE leva à reprovação; `OK_DOCS_FALTANDO` é mais uma indicação interna de qualidade dos documentos disponíveis.
+
+## Relatório final: formato e principais colunas
+
+Ao final da execução, o script gera:
+
+- Um arquivo CSV (separador `;`) com saneamento de caracteres ilegais.
+
+- Um arquivo XLSX com o mesmo conteúdo, para análises em planilha.
+
+Embora a lista exata de colunas esteja no código, a estrutura típica inclui:
+
+- **Identificação do contrato**:
+
+  - Coluna chave (`col_chave`), por exemplo, número de contrato/proposta.
+
+  - Campos de cliente (nome, CPF) vindos de metadados.
+
+- **Documentos e caminhos de arquivo**:
+
+  - Caminho/identificador do CCB escolhido.
+
+  - Caminho/identificador do RG selecionado.
+
+  - Caminho/identificador do ANTIFRAUDE (quando presente).
+
+  - Indicadores se há múltiplos documentos do mesmo tipo.
+
+- **Scores e indicadores de OCR**:
+
+  - Probabilidade de classificação/qualidade do CCB.
+
+  - Scores de extração de CPF do RG.
+
+  - Scores de similaridade de nome.
+
+- **Status internos**:
+
+  - `status_CCB_interno`: situação do CCB após validação.
+
+  - Indicadores de `PENDENTE_BIOMETRIA` e resultado da biometria.
+
+  - Flags de documentos faltantes (inclusive ausência de ANTIFRAUDE).
+
+- **Status finais e motivos**:
+
+  - Status geral: `APROVADO`, `REPROVADO`, `OK_DOCS_FALTANDO` (e eventuais variações específicas definidas no código).
+
+  - Motivo textual da decisão (por exemplo, CCB inconsistente, RG divergente, ANTIFRAUDE ausente, etc.).
+
+<Callout kind="tip" collapsed="false">
+  Para consumo por outros sistemas, recomenda-se padronizar a leitura pelo CSV (sep `;`) e usar as colunas de status final e motivo como principal interface.\
+  A planilha XLSX é voltada para inspeção manual por times de negócio e auditoria.
+</Callout>
+
+## Boas práticas de operação e manutenção
+
+- **Verificar PASTA\_MODELOS**:
+
+  - Antes de atualizar modelos, teste em ambiente de homologação.
+
+  - Mantenha versionamento dos modelos compatível com o código.
+
+- **Ajustar&#x20;****`--processos`****&#x20;conforme o ambiente**:
+
+  - Em servidores compartilhados, limitar processos para não impactar outras aplicações.
+
+  - Em máquinas dedicadas, aumentar até o ponto onde o ganho de performance se estabilizar.
+
+- **Monitorar filas de biometria**:
+
+  - Em cenários de grande volume, garanta que o `biometria_server` esteja ativo e dimensionado.
+
+  - Falhas persistentes na biometria podem deixar contratos presos como pendentes ou levar a reprovações.
+
+- **Auditar limiares (****`NOTAS_DE_CORTE`****) periodicamente**:
+
+  - Ajustes de limiares afetam diretamente taxa de aprovação e qualidade de detecção de fraudes.
+
+  - Sempre registrar mudanças de configuração e seus impactos.
+
+Caso precise de contexto geral sobre configuração da aplicação, consulte também a página de [Configuration](/configuration).
