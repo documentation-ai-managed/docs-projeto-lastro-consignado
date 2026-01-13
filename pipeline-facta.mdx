@@ -1,5 +1,5 @@
 ---
-title: Pipeline FACTA — Validação Documental com Antifraude Obrigatório
+title: Pipeline FACTA — Validação Documental
 description: >-
   Guia técnico do main.py   — fluxo ponta a ponta de captura, OCR, validação
   multi-fator, biometria e geração de relatório.
@@ -478,7 +478,7 @@ Embora a lista exata de colunas esteja no código, a estrutura típica inclui:
 
   - Mantenha versionamento dos modelos compatível com o código.
 
-- **Ajustar&#x20;****`--processos`****&#x20;conforme o ambiente**:
+- **Ajustar&#x20;********`--processos`********&#x20;conforme o ambiente**:
 
   - Em servidores compartilhados, limitar processos para não impactar outras aplicações.
 
@@ -490,7 +490,7 @@ Embora a lista exata de colunas esteja no código, a estrutura típica inclui:
 
   - Falhas persistentes na biometria podem deixar contratos presos como pendentes ou levar a reprovações.
 
-- **Auditar limiares (****`NOTAS_DE_CORTE`****) periodicamente**:
+- **Auditar limiares (********`NOTAS_DE_CORTE`********) periodicamente**:
 
   - Ajustes de limiares afetam diretamente taxa de aprovação e qualidade de detecção de fraudes.
 
